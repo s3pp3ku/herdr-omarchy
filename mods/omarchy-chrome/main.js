@@ -56,7 +56,9 @@ export default class WorkspaceChrome extends View {
       const settings = row("settings", "settings", "Settings", false, () => run("mod.open", { name: "omarchy-settings" }), "Prefs")
         .when(Boolean(updates().app.ready), el => el.child(div().size(6).rounded(0).bg(t.accent).when(collapsed, d => d.absolute().top(2).right(2))));
       const keys = row("keys", "keyboard", "Keybindings", false, () => run("mod.open", { name: "omarchy-keys" }), "Keys");
-      const mods = row("mods", "layers", "Mods", false, () => run("mod.open", { name: "omarchy-mod-manager" }));
+      // herdr-omarchy's main is ahead (omarchy-bar's update check): the same dot as Settings' app update.
+      const mods = row("mods", "layers", "Mods", false, () => run("mod.open", { name: "omarchy-mod-manager" }))
+        .when(Boolean(shared("omarchy-bar.update-available")), el => el.child(div().size(6).rounded(0).bg(t.accent).when(collapsed, d => d.absolute().top(2).right(2))));
       const machine = row("machine", "plus", "Add machine", true, () => run("mod.open", { name: "omarchy-machine-add" }), "Add");
       const base = v_flex().size_full().justify_center().bg(t.chrome).px(collapsed ? 0 : 10).py(collapsed ? 4 : 10).gap(2).text_size(12);
       if (collapsed) return base.items_center().child(settings).child(keys).child(mods).child(machine);

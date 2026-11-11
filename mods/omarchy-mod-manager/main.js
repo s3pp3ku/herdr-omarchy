@@ -39,6 +39,12 @@ const cacheDir = () => `${appHome()}/.mod-manager-cache`;
 const repoPage = (source) => (/^[\w.-]+\/[\w.-]+$/.test(source) ? `https://github.com/${source}` : null);
 const short = (sha) => (sha ? sha.slice(0, 7) : "?");
 
+// herdr-omarchy's own mods while omarchy-bar's check finds its main ahead: marked like a package update.
+const layoutUpdate = (mod) => {
+  const ahead = shared("omarchy-bar.update-available");
+  return ahead?.mods?.includes(mod.name) ? ahead.sha : null;
+};
+
 // Two letters for a mod's tile: "omarchy-ai-usage" -> "AU", "git-graph" -> "GG".
 const monogram = (name) => {
   const words = name.replace(/^omarchy-/, "").split(/[-_/]/).filter(Boolean);
@@ -291,7 +297,7 @@ export default class ModManager extends View {
   }
 
   updateCount() {
-    return records().filter((r) => this.updates[r.source]).length;
+    return records().filter((r) => this.updates[r.source]).length + (shared("omarchy-bar.update-available") ? 1 : 0);
   }
 
   // ---- actions shared by keys and buttons ----
@@ -328,14 +334,28 @@ export default class ModManager extends View {
   }
 
   update(cx, mod) {
+    if (layoutUpdate(mod)) {
+      run("omarchy-bar.update");
+      return this.say("Updating herdr-omarchy…");
+    }
     if (mod.kind !== "installed") this.say(mod.kind === "herdr" ? "Herdr's own mods update with the app." : "Only mods installed here have a source to update from.");
     else cx.spawn(async (cx) => this.startReview(cx, mod.record.source));
   }
 
   updateAllAsk(cx) {
     const pending = records().filter((r) => this.updates[r.source]);
-    if (!pending.length) this.say("Everything is up to date.", "ok");
-    else this.confirm = { text: `Update ${pending.length} package(s): ${pending.map((r) => r.mods.join("+")).join(", ")}?`, run: (cx) => this.updateAll(cx, pending) };
+    const layout = Boolean(shared("omarchy-bar.update-available"));
+    const names = [...pending.map((r) => r.mods.join("+")), ...(layout ? ["herdr-omarchy"] : [])];
+    if (!names.length) return this.say("Everything is up to date.", "ok");
+    this.confirm = {
+      text: `Update ${names.length} package(s): ${names.join(", ")}?`,
+      run: (cx) => {
+        if (layout) run("omarchy-bar.update");
+        if (pending.length) return this.updateAll(cx, pending);
+        this.say("Updating herdr-omarchy…");
+        cx.notify();
+      },
+    };
   }
 
   removeAsk(mod) {
@@ -552,6 +572,7 @@ export default class ModManager extends View {
         .child(this.tab(p, "tab-installed", "Installed", this.mods.length, this.mode === "list", (cx) => this.switchTab(cx, "list")))
         .child(this.tab(p, "tab-market", "Marketplace", this.market.total || null, this.mode === "market", (cx) => this.switchTab(cx, "market")))))
       .child(div().flex_1())
+      .when(tabs && updates > 0, (el) => el.child(div().pb(14).child(this.button(p, "update-all", "Update all", "U", (cx) => this.updateAllAsk(cx), "primary"))))
       .child(div().pb(14).child(this.button(p, "close", "Close", "esc", () => this.dismiss())));
   }
 
@@ -618,7 +639,7 @@ export default class ModManager extends View {
       for (let i = range.start; i < range.end; i++) {
         const m = mods[i];
         const sel = i === this.at;
-        const update = m.record && this.updates[m.record.source];
+        const update = (m.record && this.updates[m.record.source]) || layoutUpdate(m);
         const color = update ? p.warn : m.kind === "installed" ? p.ok : m.kind === "local" ? p.accent : p.muted;
         out.push(h_flex().id(`mod-${m.name}`).role("list_box_option").aria_selected(sel).h(ROW).pr(16).gap(14).items_center()
           .rounded(0).cursor_pointer().border_b_1().border_color(p.border).when(sel, (el) => el.bg(p.sel)).hover((s) => s.bg(sel ? p.sel : p.hover))
@@ -648,7 +669,7 @@ export default class ModManager extends View {
     const box = v_flex().w(380).flex_none().h_full().gap(16).overflow_y_scrollbar();
     if (!mod) return box;
     const r = mod.record;
-    const update = r && this.updates[r.source];
+    const update = (r && this.updates[r.source]) || layoutUpdate(mod);
     const [status, color] = update ? ["Update available", p.warn] : mod.kind === "installed" ? ["Installed from GitHub", p.ok] : mod.kind === "local" ? ["Local mod", p.accent] : ["Built into Herdr", p.muted];
     const facts = r
       ? [["Source", `${r.source}${r.prefix ? ` (${r.prefix})` : ""}`], ["Commit", `${short(r.sha)}${update ? ` → ${short(update)}` : ""}`],
@@ -656,7 +677,8 @@ export default class ModManager extends View {
         r.layouts?.length ? ["Layouts", r.layouts.join(", ")] : null,
         r.keys?.length ? ["Keys", r.keys.map((k) => `${k.key} → ${k.action}`).join(", ")] : null].filter(Boolean)
       : [["Folder", `mods/${mod.name}${mod.symlink ? " (symlink)" : ""}`],
-        ["Source", mod.kind === "herdr" ? "Ships with Herdr, read-only" : "No recorded source"]];
+        update ? ["Source", "herdr-omarchy main"] : ["Source", mod.kind === "herdr" ? "Ships with Herdr, read-only" : "No recorded source"],
+        update ? ["Commit", `${short(shared("omarchy-bar.update")?.sha)} → ${short(update)}`] : null].filter(Boolean);
     const note = mod.kind === "herdr" ? "Ask AI makes an editable clone, so Herdr's copy stays untouched."
       : r ? "Ask AI edits this copy. Updating from GitHub later replaces those edits." : "Ask AI edits this folder in place.";
     const actions = [
