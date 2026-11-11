@@ -8,24 +8,39 @@ import { clock, pace, resets, resetsShort } from "./time.js";
 const MOD = "omarchy-ai-usage";
 const keyOf = id => `${MOD}.${id}`;
 const SHOWN = keyOf("shown");
+const REFRESH_REQUEST = keyOf("refresh-request");
+const REFRESH_HANDLED = keyOf("refresh-handled");
 const EVERY = 5 * 60e3;
 // One missed cycle plus slack, so a slow fetch doesn't flash the bar grey.
 const STALE = 12 * 60e3;
 const AMBER = "#ffb347", RED = "#ff5d6c";
 const POPUP_W = 320, GAP = 6;
 
+const refreshing = new Set();
+
 async function refreshOne(src) {
-  if (!src.provider) return;
+  if (!src.provider || refreshing.has(src.id)) return;
+  refreshing.add(src.id);
   const prev = shared(keyOf(src.id)) ?? {};
   const now = new Date().toISOString();
   try {
-    setShared(keyOf(src.id), { checked: now, fetched: now, error: null, windows: await fetchUsage(src) });
+    const { windows, fetched } = await fetchUsage(src, true);
+    setShared(keyOf(src.id), { checked: now, fetched: fetched ?? now, error: null, windows });
   } catch (e) {
     setShared(keyOf(src.id), { ...prev, checked: now, error: String(e?.message ?? e) });
-  }
+  } finally { refreshing.delete(src.id); }
 }
 
 const shownList = () => shared(SHOWN)?.list ?? [];
+const isOpenCodeSource = src => src.from?.harness === "opencode"
+  || (src.id === "none.opencode" && src.agent === "OpenCode")
+  || (src.id === "codex" && src.agent === "OpenCode" && src.label === "opencode" && src.from?.codex === true);
+const sourceSignature = (vis, usageSource) => `${vis.map(v => `${v.terminal}:${v.program.key}`).join(",")}|${usageSource ?? ""}`;
+const uniqueSources = list => {
+  const sources = new Map();
+  for (const src of list) if (!sources.has(src.id)) sources.set(src.id, src);
+  return [...sources.values()];
+};
 const due = src => src.provider && Date.now() - (Date.parse(shared(keyOf(src.id))?.checked ?? "") || 0) >= EVERY;
 const refreshAll = (force) => Promise.all(shownList().filter(s => force || due(s)).map(refreshOne));
 const isStale = u => !u?.fetched || Boolean(u.error) || Date.now() - Date.parse(u.fetched) > STALE;
@@ -47,7 +62,25 @@ export default class AiUsage extends View {
     if (props()?.overlay) return;
     this.sig = null;
     this.claudeEnv = {};
-    cx.timer.every(60e3, cx => { cx.spawn(async () => refreshAll()); cx.notify(); });
+    this.discoveryGeneration = 0;
+    this.refreshRequestId = Number(shared(REFRESH_HANDLED)) || 0;
+    this.refreshInFlightId = 0;
+    this.refreshForcedId = 0;
+    cx.timer.every(60e3, cx => {
+      cx.notify();
+      const requestId = Number(shared(REFRESH_REQUEST)) || 0;
+      const requested = requestId > this.refreshRequestId;
+      const force = requested && this.refreshForcedId !== requestId;
+      if (force) this.refreshInFlightId = requestId;
+      cx.spawn(async () => {
+        const current = await this.refreshSources();
+        if (current) {
+          if (force) this.refreshForcedId = requestId;
+          await refreshAll(force);
+          if (force) this.acknowledgeRefresh(requestId);
+        } else if (force && this.refreshInFlightId === requestId) this.refreshInFlightId = 0;
+      });
+    });
   }
 
   // CLAUDE_CONFIG_DIR is per process; Linux /proc ties it to the Herdr terminal (HC_TERMINAL_ID).
@@ -64,20 +97,64 @@ export default class AiUsage extends View {
     return dir === null ? null : (dir || `${home()}/.claude`);
   }
 
-  // Runs when what's visible changes; keeps the last list when no agent is in view.
+  // Rebuild source descriptors before any refresh, including requests from the popup.
   sync(cx) {
-    const vis = visible();
-    const sig = vis.map(v => `${v.terminal}:${v.program.key}`).join(",");
-    if (sig === this.sig) return;
+    const vis = visible(), choice = props()?.usage_source, sig = sourceSignature(vis, choice);
+    const requestId = Number(shared(REFRESH_REQUEST)) || 0;
+    const requested = requestId > this.refreshRequestId;
+    if (sig === this.sig && (!requested || this.refreshInFlightId === requestId)) return;
     this.sig = sig;
-    if (!vis.length) { if (shownList().length && !shared(SHOWN)?.idle) setShared(SHOWN, { list: shownList(), idle: true }); return; }
+    if (requested) this.refreshInFlightId = requestId;
+    if (!vis.length && shownList().length && !shared(SHOWN)?.idle) setShared(SHOWN, { list: shownList(), idle: true });
     cx.spawn(async () => {
-      const seen = new Set(), list = [];
-      for (const v of vis) for (const s of await sourcesFor(v, terminal => this.claudeDirOf(terminal))) if (!seen.has(s.id)) { seen.add(s.id); list.push(s); }
-      if (this.sig !== sig) return;
-      if (JSON.stringify(shared(SHOWN)) !== JSON.stringify({ list, idle: false })) setShared(SHOWN, { list, idle: false });
-      await refreshAll();
+      const current = await this.refreshSources(vis, choice);
+      if (!current) {
+        if (requested && this.refreshInFlightId === requestId) this.refreshInFlightId = 0;
+        return;
+      }
+      const force = requested && this.refreshForcedId !== requestId;
+      if (force) this.refreshForcedId = requestId;
+      await refreshAll(force);
+      if (force) this.acknowledgeRefresh(requestId);
     });
+  }
+
+  acknowledgeRefresh(requestId) {
+    this.refreshRequestId = Math.max(this.refreshRequestId, requestId);
+    if (this.refreshInFlightId === requestId) this.refreshInFlightId = 0;
+    setShared(REFRESH_HANDLED, this.refreshRequestId);
+  }
+
+  requestRefresh() {
+    const latest = Math.max(Number(shared(REFRESH_REQUEST)) || 0, Number(shared(REFRESH_HANDLED)) || 0);
+    setShared(REFRESH_REQUEST, latest + 1);
+  }
+
+  async refreshSources(vis = visible(), choice = props()?.usage_source) {
+    const sig = sourceSignature(vis, choice), generation = this.discoveryGeneration = (this.discoveryGeneration || 0) + 1;
+    const stillCurrent = () => generation === this.discoveryGeneration && sourceSignature(visible(), props()?.usage_source) === sig;
+    if (vis.length) {
+      const list = [];
+      for (const v of vis) list.push(...await sourcesFor(v, terminal => this.claudeDirOf(terminal), choice, stillCurrent));
+      if (!stillCurrent()) return false;
+      const next = { list: uniqueSources(list), idle: false };
+      if (JSON.stringify(shared(SHOWN)) !== JSON.stringify(next)) setShared(SHOWN, next);
+      return true;
+    }
+
+    const prev = shared(SHOWN);
+    if (!prev?.list?.length) return true;
+    const list = [];
+    for (const src of prev.list) {
+      if (!isOpenCodeSource(src)) { list.push(src); continue; }
+      list.push(...await sourcesFor({ terminal: null, program: {
+        key: "opencode", name: src.agent || "OpenCode", icon: src.icon, tint: src.tint,
+      } }, terminal => this.claudeDirOf(terminal), choice, stillCurrent));
+    }
+    if (!stillCurrent() || JSON.stringify(shared(SHOWN)?.list) !== JSON.stringify(prev.list)) return false;
+    const next = { ...prev, list: uniqueSources(list), idle: true };
+    if (JSON.stringify(shared(SHOWN)) !== JSON.stringify(next)) setShared(SHOWN, next);
+    return true;
   }
 
   render(cx) {
@@ -97,7 +174,7 @@ export default class AiUsage extends View {
     const height = !b || below ? want : Math.min(want, b.y / z - GAP);
     const x = b ? Math.max(0, b.x + b.width - (POPUP_W + GAP) * z) : 0;
     const at = !b ? undefined : below ? { x, y: b.y + b.height + GAP * z } : { x, y: b.y - (height + GAP) * z };
-    openOverlay({ mod: MOD, kind: "popup", frame: "none", width: POPUP_W, height, at, props: { details: true, height, below } });
+    openOverlay({ mod: MOD, kind: "popup", frame: "none", width: POPUP_W, height, at, props: { details: true, height, below, usage_source: props()?.usage_source } });
   }
 
   icon(s, size, dim) {
@@ -110,7 +187,8 @@ export default class AiUsage extends View {
     const u = shared(keyOf(s.id));
     if (s.note) return `${s.agent}: ${s.note}`;
     const ws = u?.windows ?? [];
-    return `${s.agent} (${s.label}): ` + (ws.length
+    const source = s.from?.omarchy === "codex" ? ` — ${s.sub}` : "";
+    return `${s.agent} (${s.label})${source}: ` + (ws.length
       ? ws.map(w => `${w.long} ${w.used}%, ${resets(w)}`).join("; ") + (u.error ? ` (${u.error})` : "")
       : u?.error ?? (u?.fetched ? "no limits reported" : "loading"));
   }
@@ -185,9 +263,10 @@ export default class AiUsage extends View {
     const section = s => {
       const u = shared(keyOf(s.id));
       const stale = idle || isStale(u);
-      const footer = s.note ?? (!u?.fetched ? (u?.error ?? "not fetched yet")
+      const status = s.note ?? (!u?.fetched ? (u?.error ?? "not fetched yet")
         : u.error ? `fetch failed: ${u.error} · data from ${clock(Date.parse(u.fetched))}`
         : `updated ${clock(Date.parse(u.fetched))}`);
+      const footer = [status, s.from?.omarchy === "codex" ? s.sub : null].filter(Boolean).join(" · ");
       return v_flex().gap(10).p(10).rounded(0).border(1).border_color(stale ? t.border : t.input)
         .child(h_flex().gap(6).items_center().min_w(0)
           .child(this.icon(s, 14, stale))
@@ -206,7 +285,7 @@ export default class AiUsage extends View {
       .child(h_flex().justify_between().items_center()
         .child(div().text_size(13).font_semibold().text_color(t.foreground).child(idle ? "AI usage (last seen)" : "AI usage"))
         .child(div().id("refresh").px(6).py(2).rounded(0).text_color(t.dim).hover(s => s.bg(t.hover).text_color(t.foreground))
-          .on_click((_e, cx) => cx.spawn(async () => refreshAll(true))).child("Refresh")))
+          .on_click(() => this.requestRefresh()).child("Refresh")))
       .when(!list.length, el => el.child(div().text_color(t.dim).child("No agent in view")))
       .children(list.map(section)));
   }

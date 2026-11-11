@@ -22,6 +22,14 @@ The Omarchy desktop, rebuilt inside Herdr. Your terminals and coding agents sit 
 - **Omarchy's keys.** The layout uses Omarchy's own keys wherever GNOME leaves them free. `super-k` lists every key in plain English, grouped by type (spaces, tabs, panes, agents and more). Click a group to fold it, and the fold stays. The keys that came with the layout are set apart.
 - **Square dialogs that match.** The command palette, Settings, the go-to picker, notifications, right-click menus, a Keybindings list and a mod manager that browses, reviews and installs community mods all share the same look.
 
+OpenCode uses its original model-based OAuth route by default. To opt into Omarchy agents' cached Codex quota for an OpenAI OpenCode provider, add `usage_source: "omarchy"` to the `ai-usage` block's `content.props` in an existing `layouts/omarchy.json`, keeping `compact: true`:
+
+```json
+"props": { "compact": true, "usage_source": "omarchy" }
+```
+
+This reads only `~/.local/state/omarchy/agents/usage/codex.json`, maintained by Omarchy agents. It accepts a ready, non-stale cache fetched within 12 minutes and does not read OpenCode credentials, make a quota request, log in, or refresh the cache. It shows Omarchy's ChatGPT subscription; the account is not verified against OpenCode. Without the property, the original routing remains active.
+
 ## Features
 
 - **Top bar**: the menu, sidebar, browser and search buttons and the current space on the left; AI usage and the window buttons on the right. The browser button opens a blank browser tab in the space.
@@ -43,7 +51,7 @@ The agent copies the layout, mods, themes and wallpapers into `~/.config/herdr-a
 
 > [!NOTE]
 > Some mods use the network or run programs:
-> - `omarchy-ai-usage` reads the local login files of your AI agents (Claude, Codex, Copilot, OpenCode and Pi). It uses the tokens in them to get your usage from the API of each provider.
+> - `omarchy-ai-usage` reads local login files for direct provider usage (Claude, Codex, Copilot, OpenCode and Pi). With the explicit `usage_source: "omarchy"` option, OpenCode/OpenAI instead uses Omarchy agents' Codex quota cache; that subscription may differ from OpenCode's account. This cache route reads no credentials and makes no network request.
 > - `omarchy-spaces`, `omarchy-files` and `omarchy-changes` run `git` in your folders. The commit graph in `omarchy-changes` also runs `find` to look for repos in a folder that is not one.
 > - `omarchy-pane` runs `google-chrome` or `chromium` for the browser toolbar's DevTools and Chrome-window buttons, and your system's opener for links.
 > - `patches/apply-herdr-browser.sh` changes the files of `~/.local/share/herdr-browser`. It stops and starts `herdr-browser` when the helper is running.

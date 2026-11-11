@@ -30,7 +30,7 @@ Top to bottom, left to right. Sizes are logical px at zoom 1. Colors below are t
 - **Tabs with several agents**: the cell shows up to three distinct program icons side by side and the lead agent's work as its label. The tooltip lists each agent with its own status. A tab the person renamed keeps its name.
 - **AI usage follows the screen**: it shows providers for the agents in the focused tab (focused pane first, zoom respected). With no agent in view it keeps the last list, dimmed. Clicking it opens a popup with every window and its reset time, in 12-hour time ("resets in 2h 10m, at 4:30 PM"). Each provider refreshes when it first appears, then every 5 minutes.
   - **Live providers**: Claude (5h and 7d, plus model-scoped weekly limits), Codex (ChatGPT plan 5h and 7d) and Copilot (monthly premium requests).
-  - **Mapped**: Pi and OpenCode reuse those three when their configured provider is Anthropic, OpenAI Codex or GitHub Copilot.
+  - **Mapped**: Pi reuses those three when its configured provider is Anthropic, OpenAI Codex or GitHub Copilot. OpenCode/OpenAI can opt into Omarchy agents' Codex quota cache (`~/.local/state/omarchy/agents/usage/codex.json`); it shows Omarchy's ChatGPT subscription, without verifying that it matches OpenCode's account. The opt-in is absent by default. To enable it in an existing `layouts/omarchy.json`, add `"usage_source":"omarchy"` to the `ai-usage` block's `content.props`, keeping `compact:true`.
   - **Labelled only**: omp, devin, droid, kimi, kilo, hermes, qodercli, qwen, letta, cursor, mastracode, antigravity-cli and grok.
   - **Claude accounts**: when two Claude config directories exist (`~/.claude`, `~/.claude-personal`), the meter matches each terminal's `CLAUDE_CONFIG_DIR` to show the right account. An account with no login is hidden.
 - **Clicks**: a space number selects the space; the menu icon opens the palette; search opens the picker; the sidebar toggle collapses the sidebar to a 44px rail and back. A double-click on a tab renames it, dragging reorders, and right-click opens the tab menu.
@@ -65,13 +65,14 @@ Top to bottom, left to right. Sizes are logical px at zoom 1. Colors below are t
 
 - **Reopen closed tab**: exact pane trees and sizes need `python3` and `hc connect`. Without them, reopening uses a basic row of panes. Agent session detection reads Linux `/proc` and local session files.
 - **Network and programs**: check these before installing.
-  - `omarchy-ai-usage` reads login files only at fetch time and never stores tokens:
+  - `omarchy-ai-usage` reads login files only for direct provider sources and never stores tokens:
     - `~/.claude*/.credentials.json`
     - `~/.codex/auth.json`
     - `~/.config/github-copilot/*.json`
     - `~/.pi/agent/auth.json`
-    - `~/.local/share/opencode/auth.json`
-  - It calls only the providers' own hosts: `api.anthropic.com`, `chatgpt.com`, `api.github.com`. On Linux it reads `/proc/*/environ` to match each terminal to its Claude config directory.
+    - `~/.local/share/opencode/auth.json` (OpenCode's direct route when the layout opt-in is absent or its selected provider is not OpenAI)
+  - The OpenCode/OpenAI layout opt-in reads only Omarchy agents' `~/.local/state/omarchy/agents/usage/codex.json`; the cache must be `ready`, not stale and no older than 12 minutes. It does not refresh credentials or call a quota endpoint. The source is Omarchy's subscription; its account is not verified against OpenCode.
+  - Direct usage calls only the providers' own hosts: `api.anthropic.com`, `chatgpt.com`, `api.github.com`. On Linux it reads `/proc/*/environ` to match each terminal to its Claude config directory.
   - `omarchy-spaces` and `omarchy-changes` run `git`.
   - The graph in `omarchy-changes` runs `git`, `find` and `env` (Manygit's fetch-all), and reads files in the repo for diffs.
   - `omarchy-pane` runs `xdg-open` (Linux), `open` (macOS) or `explorer` (Windows) to open links. On Linux its browser toolbar also runs `google-chrome` or `chromium` as an app window: for the page (`ctrl-alt-o`, key command `omarchy-pane.dev`) and for DevTools on the page the pane shows (`ctrl-alt-i`, `omarchy-pane.inspect`). It watches the folder of a local page and reloads the page when an HTML, CSS, JS, JSON, image or Markdown file in it is saved, except while annotating and for pages directly in `/tmp`. The DevTools button and its red error count need the helper patch in `patches/herdr-browser.patch`, applied with `sh patches/apply-herdr-browser.sh` (safe to run twice; run it again after a Herdr update); without it the button stays disabled.

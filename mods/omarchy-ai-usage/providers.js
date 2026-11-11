@@ -46,6 +46,7 @@ export const PROVIDERS = {
         .map(w => win(w.limit_window_seconds * 1e3, w.used_percent, isoOf(w.reset_at * 1e3)));
     },
   },
+  openai: { name: "ChatGPT", color: "#7A9DFF" },
   copilot: {
     name: "Copilot",
     color: "#a371f7",
@@ -66,7 +67,7 @@ export const PROVIDERS = {
 // Multi-provider harnesses: which provider they use, and where their logins live.
 const HARNESS = {
   pi: { auth: ".pi/agent/auth.json", pick: async () => (await json(".pi/agent/settings.json"))?.defaultProvider },
-  opencode: { auth: ".local/share/opencode/auth.json", pick: async () => (await json(".config/opencode/opencode.json"))?.model?.split("/")[0] },
+  opencode: { auth: ".local/share/opencode/auth.json" },
 };
 const UNDER = { anthropic: "claude", "openai-codex": "codex", openai: "codex", "github-copilot": "copilot" };
 
@@ -99,6 +100,35 @@ const claudeDirs = [".claude", ".claude-personal"];
 const claudeLabel = dir => (dir.split("/").pop().replace(/^\.claude-?/, "") || "claude");
 
 const capital = s => s[0].toUpperCase() + s.slice(1);
+const OMARCHY_USAGE_MAX_AGE = 12 * 60e3;
+const OMARCHY_WINDOWS = { "5h window": 5 * H, "Weekly (7-day)": 7 * DAY };
+
+function omarchyUsage(cache) {
+  const fetchedAt = cache?.limitsFetchedAt, now = Date.now();
+  if (cache?.ready !== true || cache.limitsStale !== false || !Number.isFinite(fetchedAt)
+      || fetchedAt > now || now - fetchedAt > OMARCHY_USAGE_MAX_AGE || !Array.isArray(cache.limits)) {
+    throw new Error("Omarchy subscription limits are stale or unavailable");
+  }
+  const limits = cache.limits.filter(limit => Object.hasOwn(OMARCHY_WINDOWS, limit?.label));
+  if (!limits.length) throw new Error("Omarchy subscription limits are unavailable");
+  if (new Set(limits.map(limit => limit.label)).size !== limits.length) {
+    throw new Error("Omarchy subscription limits are invalid");
+  }
+  const windows = limits.map(({ label, percent, resetsAt }) => {
+    const reset = typeof resetsAt === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(resetsAt) ? Date.parse(resetsAt) : NaN;
+    if (!Number.isFinite(percent) || percent < 0 || percent > 1 || !Number.isFinite(reset)) {
+      throw new Error("Omarchy subscription limits are invalid");
+    }
+    return win(OMARCHY_WINDOWS[label], percent * 100, new Date(reset).toISOString());
+  });
+  return { windows, fetched: new Date(fetchedAt).toISOString() };
+}
+
+const omarchySource = v => ({
+  id: "omarchy.codex", provider: "openai", agent: v.program.name,
+  label: "Omarchy", sub: "Omarchy's ChatGPT subscription; OpenCode account not verified",
+  icon: v.program.icon, tint: v.program.tint, from: { omarchy: "codex", harness: "opencode", entry: "openai" },
+});
 
 // settings.json's "claude_labels" ({ "~/.claude": "Work" }) names a profile outright. Otherwise its
 // organization ("Flexspring"), or "Personal" for the "<email>'s Organization" a personal account
@@ -118,7 +148,7 @@ function labelled(v, why) {
   return { id: `none.${v.program.key}`, agent: v.program.name, label: v.program.name, icon: v.program.icon, tint: v.program.tint, note: why ?? "no usage API" };
 }
 
-export async function sourcesFor(v, claudeDirOf) {
+export async function sourcesFor(v, claudeDirOf, usageSource, isCurrent = () => true) {
   const key = v.program.key, agent = v.program.name;
   const icon = v.program.icon, tint = v.program.tint;
   if (key === "claude" || key === "claude-code") {
@@ -130,19 +160,32 @@ export async function sourcesFor(v, claudeDirOf) {
   if (key === "copilot") return [{ id: "copilot", provider: "copilot", agent, label: "copilot", sub: "GitHub Copilot", icon, tint, from: { copilot: true } }];
   const h = HARNESS[key];
   if (!h) return [labelled(v)];
-  const entry = await h.pick();
+  const config = key === "opencode" ? await json(".config/opencode/opencode.json") : null;
+  const entry = key === "opencode" ? (typeof config?.model === "string" ? config.model.split("/")[0] : null) : await h.pick();
+  if (!isCurrent()) return [];
+  if (key === "opencode" && usageSource === "omarchy"
+      && (entry === "openai" || (!entry && config?.providers?.openai))) return [omarchySource(v)];
+  if (!isCurrent()) return [];
   const auth = (await json(h.auth))?.[entry];
   const provider = UNDER[entry];
-  if (!provider || auth?.type !== "oauth") return [labelled(v, `${entry ?? "its provider"}: no usage API`)];
+  if (!provider || auth?.type !== "oauth") {
+    const source = labelled(v, `${entry ?? "its provider"}: no usage API`);
+    return key === "opencode" ? [{ ...source, from: { harness: key, entry: entry ?? null } }] : [source];
+  }
   // Same ChatGPT account as Codex's own login: share its numbers and its fresher token.
   if (provider === "codex" && auth.accountId && auth.accountId === (await json(".codex/auth.json"))?.tokens?.account_id) {
-    return [{ id: "codex", provider, agent, label: key, sub: `via ${entry} (Codex login)`, icon, tint, from: { codex: true } }];
+    return [{ id: "codex", provider, agent, label: key, sub: `via ${entry} (Codex login)`, icon, tint, from: { codex: true, ...(key === "opencode" ? { harness: key, entry } : {}) } }];
   }
   return [{ id: `${key}.${provider}`, provider, agent, label: key, sub: `via ${entry}`, icon, tint, from: { harness: key, entry } }];
 }
 
-export async function fetchUsage(src) {
-  const c = await creds(src);
-  if (c.expires && c.expires < Date.now()) throw new Error(`token expired, use ${src.agent} to refresh it`);
-  return PROVIDERS[src.provider].usage(c);
+export async function fetchUsage(src, withMetadata = false) {
+  let result;
+  if (src.from?.omarchy === "codex") result = omarchyUsage(await json(".local/state/omarchy/agents/usage/codex.json"));
+  else {
+    const c = await creds(src);
+    if (c.expires && c.expires < Date.now()) throw new Error(`token expired, use ${src.agent} to refresh it`);
+    result = { windows: await PROVIDERS[src.provider].usage(c) };
+  }
+  return withMetadata ? result : result.windows;
 }
