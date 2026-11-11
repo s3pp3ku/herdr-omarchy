@@ -1,4 +1,56 @@
-import { exec, appHome, layout } from "herdr";
+import { exec, appHome, layout, home, settings } from "herdr";
+
+export const desktopDirectory = () => `${home()}/.local/state/omarchy/current`;
+
+async function desktopWallpaper() {
+  const script = `
+    src=$(readlink -f "$1") || exit 1
+    case "$src" in
+      *.[pP][nN][gG]) ext=png ;;
+      *.[jJ][pP][gG]|*.[jJ][pP][eE][gG]) ext=jpg ;;
+      *.[wW][eE][bB][pP]) ext=webp ;;
+      *) exit 1 ;;
+    esac
+    hash=$(sha256sum < "$src") || exit 1
+    hash=\${hash%% *}
+    file="$2/current-$hash.$ext"
+    mkdir -p "$2" || exit 1
+    if [ ! -f "$file" ]; then cp -- "$src" "$file" || exit 1; fi
+    for old in "$2"/current-*; do
+      if [ "$old" != "$file" ] && [ -f "$old" ]; then rm -f -- "$old"; fi
+    done
+    printf 'backgrounds/desktop/current-%s.%s' "$hash" "$ext"
+  `;
+  const r = await exec("sh", ["-c", script, "sh", `${desktopDirectory()}/background`, `${appHome()}/backgrounds/desktop`]).catch(() => null);
+  return r?.code === 0 ? r.stdout.trim() : null;
+}
+
+let updating = Promise.resolve();
+
+export function matchWallpaper(name) {
+  updating = updating.catch(() => {}).then(async () => {
+    const desktop = await desktopWallpaper();
+    if (desktop) {
+      if (layout()?.background?.image !== desktop) await setWallpaper(desktop);
+      return;
+    }
+    if (layout()?.background?.image?.startsWith(`backgrounds/omarchy/${name}/`)) return;
+    const [first] = await wallpapers(name);
+    if (first && settings().theme === name) await setWallpaper(first);
+  });
+  return updating;
+}
+
+export async function nextWallpaper() {
+  const desktop = await exec("test", ["-f", `${desktopDirectory()}/background`]).catch(() => null);
+  if (desktop?.code === 0) {
+    await exec("omarchy-theme-bg-next", []).catch(() => null);
+    return;
+  }
+  const all = await wallpapers(settings().theme);
+  if (!all.length) return;
+  await setWallpaper(all[(all.indexOf(layout()?.background?.image) + 1) % all.length]);
+}
 
 // A theme's wallpapers: backgrounds/omarchy/<theme>/, in name order. None: [].
 export async function wallpapers(name) {

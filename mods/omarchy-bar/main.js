@@ -1,7 +1,7 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { spaces, theme, run, window, props, layout, shared, setShared, focused, home, nextCommand, settings } from "herdr";
-import { wallpapers, setWallpaper, setZoomBorder, ZOOM_BORDER } from "./wallpaper.js";
+import { spaces, theme, run, window, props, layout, shared, setShared, focused, home, nextCommand, settings, watchFolder } from "herdr";
+import { matchWallpaper, nextWallpaper, desktopDirectory, setZoomBorder, ZOOM_BORDER } from "./wallpaper.js";
 
 const own = (el) => el.on_mouse_down("left", (_e, cx) => cx.stop_propagation());
 
@@ -29,21 +29,6 @@ function openBrowser() {
   run("tab.new", { name: "Browser", argv: ["sh", "-c", 'exec "${SHELL:-sh}" -lic "exec herdr-browser view"'] });
 }
 
-// The theme's next wallpaper, as Omarchy's Super+Ctrl+Space.
-async function nextWallpaper() {
-  const all = await wallpapers(settings().theme);
-  if (!all.length) return;
-  setWallpaper(all[(all.indexOf(layout()?.background?.image) + 1) % all.length]);
-}
-
-// The wallpaper belongs to the theme: a theme change from any picker brings its first one.
-async function matchWallpaper(name) {
-  if (layout()?.background?.image?.startsWith(`backgrounds/omarchy/${name}/`)) return;
-  const [first] = await wallpapers(name);
-  // A newer theme change may have come in while listing.
-  if (first && settings().theme === name) setWallpaper(first);
-}
-
 export default class OmarchyBar extends View {
   init(_props, cx) {
     // The bar is in the layout twice; one copy takes the key.
@@ -52,6 +37,21 @@ export default class OmarchyBar extends View {
     cx.spawn(async (cx) => {
       for (;;) {
         if ((await nextCommand()) === "next-wallpaper") await nextWallpaper();
+        cx.notify();
+      }
+    });
+    cx.spawn(async (cx) => {
+      for (;;) {
+        await watchFolder(desktopDirectory()).catch(() => cx.sleep(60000));
+        await cx.sleep(300);
+        await matchWallpaper(settings().theme);
+        cx.notify();
+      }
+    });
+    cx.spawn(async (cx) => {
+      for (;;) {
+        await cx.sleep(60000);
+        await matchWallpaper(settings().theme);
         cx.notify();
       }
     });
