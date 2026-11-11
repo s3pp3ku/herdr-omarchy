@@ -20,6 +20,7 @@ The Omarchy desktop, rebuilt inside Herdr. Your terminals and coding agents sit 
 - **Git without leaving the window.** The side panel shows your changes with a diff (wrap long lines, drag the split), commits, pushes, pulls, stashes and switches or creates branches. One click opens the full commit graph, with branch lanes, labels and right-click menus for checkout, merge, rebase, reset and tags.
 - **Omarchy's themes and wallpapers.** Every Omarchy theme ships with all of its wallpapers. The theme switcher is Omarchy 4's: big desktop previews, left and right to choose. A theme brings its own wallpaper, and `super-ctrl-w` cycles them. Light themes switch Herdr to light mode, dark ones back to dark. On Omarchy, Herdr follows the desktop wallpaper instead, including custom backgrounds; the wallpaper keys advance the desktop too. On Ubuntu (GNOME) and Windows, turn on Settings > Look > Desktop wallpaper to do the same; the wallpaper keys then leave your desktop alone. macOS keeps the theme wallpapers. Without an available desktop wallpaper, bundled theme wallpapers still work.
 - **Omarchy's keys.** The layout uses Omarchy's own keys wherever GNOME leaves them free. `super-k` lists every key in plain English, grouped by type (spaces, tabs, panes, agents and more). Click a group to fold it, and the fold stays. The keys that came with the layout are set apart.
+- **Updates from `main`.** Herdr checks this repo's `main` when it starts and every 6 hours. When there is something new, the sidebar's Mods row shows a dot and Mod Manager marks the layout's mods `↑ UPDATE`; press Update there, or Update all (`U`) for every package with an update. Your keys, wallpaper and theme pair stay. Not on Windows.
 - **Square dialogs that match.** The command palette, Settings, the go-to picker, notifications, right-click menus, a Keybindings list and a mod manager that browses, reviews and installs community mods all share the same look.
 
 OpenCode uses its original model-based OAuth route by default. To opt into Omarchy agents' cached Codex quota for an OpenAI OpenCode provider, add `usage_source: "omarchy"` to the `ai-usage` block's `content.props` in an existing `layouts/omarchy.json`, keeping `compact: true`:
@@ -47,7 +48,7 @@ Ask your agent in Herdr:
 Read ~/.config/herdr-app/AGENTS.md, then add the layout from github.com/shafiqimtiaz/herdr-omarchy.
 ```
 
-The agent copies the layout, mods, themes and wallpapers into `~/.config/herdr-app`, then runs `sh patches/apply-herdr-browser.sh` from the repo. The script patches Herdr's browser helper for the DevTools button and the page's error count, and restarts the helper if it is running. Run it again after each Herdr update, because an update replaces the helper. Your own layout stays. Press `ctrl-shift-l` to change between layouts.
+The agent copies the layout, mods, themes and wallpapers into `~/.config/herdr-app`, then runs `sh patches/apply-herdr-browser.sh` from the repo. After that, updates come from Mod Manager (see Highlights); rerun the patch script yourself when `patches/` changes. The script patches Herdr's browser helper for the DevTools button and the page's error count, and restarts the helper if it is running. Run it again after each Herdr update, because an update replaces the helper. Your own layout stays. Press `ctrl-shift-l` to change between layouts.
 
 > [!NOTE]
 > Some mods use the network or run programs:
@@ -56,6 +57,7 @@ The agent copies the layout, mods, themes and wallpapers into `~/.config/herdr-a
 > - `omarchy-pane` runs `google-chrome` or `chromium` for the browser toolbar's DevTools and Chrome-window buttons, and your system's opener for links.
 > - `patches/apply-herdr-browser.sh` changes the files of `~/.local/share/herdr-browser`. It stops and starts `herdr-browser` when the helper is running.
 > - `omarchy-bar` starts `herdr-browser view` through your shell for its browser button.
+> - `omarchy-bar` runs `git` to fetch this repo's `main` into `~/.cache/herdr-omarchy` every 6 hours. When you press Update in Mod Manager it copies files from there into `~/.config/herdr-app` with `sh`, `find`, `cmp` and `cp`.
 > - `omarchy-mod-manager` searches GitHub for mods. It runs `git` and `gh` to download and install them.
 
 ## Keys

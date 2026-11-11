@@ -2,6 +2,7 @@ import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { spaces, theme, run, window, props, layout, shared, setShared, focused, home, nextCommand, settings, watchFolder } from "herdr";
 import { matchWallpaper, nextWallpaper, desktopDirectory, setZoomBorder, ZOOM_BORDER } from "./wallpaper.js";
+import { checkUpdate, applyUpdate } from "./update.js";
 
 const own = (el) => el.on_mouse_down("left", (_e, cx) => cx.stop_propagation());
 
@@ -40,7 +41,17 @@ export default class OmarchyBar extends View {
         if (command === "next-wallpaper") await nextWallpaper();
         // Settings sends this when "Desktop wallpaper" is switched.
         if (command === "match-wallpaper") await matchWallpaper(settings().theme);
+        // Mod Manager's Update on one of the layout's mods.
+        if (command === "update") await applyUpdate();
         cx.notify();
+      }
+    });
+    cx.spawn(async (cx) => {
+      for (;;) {
+        await cx.sleep(10000);
+        await checkUpdate();
+        cx.notify();
+        await cx.sleep(6 * 60 * 60 * 1000);
       }
     });
     cx.spawn(async (cx) => {
