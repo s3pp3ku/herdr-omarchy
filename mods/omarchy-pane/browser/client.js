@@ -2,7 +2,7 @@
 // state to live/<terminal>.json, and takes commands for the page a terminal
 // shows on its local HTTP API.
 //
-// mods/herdr-browser/client.js is a copy (a mod can't import from another
+// mods/omarchy-browser/client.js is a copy (a mod can't import from another
 // mod's folder): change both.
 
 import { home, readTextFile, watchFolder } from "herdr";

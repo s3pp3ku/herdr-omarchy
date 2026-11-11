@@ -183,7 +183,7 @@ export default class BrowserNotes extends View {
           if (this.editing === note.id) this.editing = null;
           act(this.terminal, "remove", { id: note.id });
         })
-        .child(svg("mods/herdr-browser/close.svg").size(12)));
+        .child(svg("mods/omarchy-browser/close.svg").size(12)));
   }
 
   render(cx) {
