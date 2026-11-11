@@ -1,7 +1,7 @@
 import { div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, Input } from "gpui-base";
 import { run, themes, fonts, settings, layouts, shared } from "herdr";
-import { heading, row, button, stepper } from "./controls.js";
+import { heading, row, button, stepper, toggle } from "./controls.js";
 
 const I = (name) => `mods/omarchy-settings/${name}.svg`;
 
@@ -291,6 +291,16 @@ export function look(view, t, cx) {
     .child(themePicker(t, false))
     .child(div().pt(10).pb(6).text_size(12.5).font_medium().text_color(t.muted).child("Light"))
     .child(themePicker(t, true))
+    .child(
+      row(
+        t,
+        "Desktop wallpaper",
+        "Show your desktop's wallpaper instead of the theme's, on GNOME and Windows. Omarchy always does.",
+        toggle(t, "st-desktop-wallpaper", p.follow_desktop_wallpaper === true, (_e, cx) =>
+          view.change((q) => (q.follow_desktop_wallpaper = q.follow_desktop_wallpaper !== true), cx, () => run("omarchy-bar.match-wallpaper")),
+        ),
+      ),
+    )
     .child(div().h(18))
     .child(heading(t, "Size and fonts"))
     .child(

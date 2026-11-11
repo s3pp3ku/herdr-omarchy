@@ -36,7 +36,10 @@ export default class OmarchyBar extends View {
     // Each step touches cx, so a reloaded bar's old loop ends instead of eating the key.
     cx.spawn(async (cx) => {
       for (;;) {
-        if ((await nextCommand()) === "next-wallpaper") await nextWallpaper();
+        const command = await nextCommand();
+        if (command === "next-wallpaper") await nextWallpaper();
+        // Settings sends this when "Desktop wallpaper" is switched.
+        if (command === "match-wallpaper") await matchWallpaper(settings().theme);
         cx.notify();
       }
     });
