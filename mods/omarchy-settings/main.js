@@ -101,7 +101,7 @@ export default class Settings extends View {
 
   // Changes settings.json the way an agent would: read, change, write back
   // only if nobody changed it meanwhile (else read again and redo).
-  change(edit, cx) {
+  change(edit, cx, after) {
     cx.spawn(async (cx) => {
       for (let attempt = 0; attempt < 3; attempt++) {
         await this.load();
@@ -110,8 +110,11 @@ export default class Settings extends View {
         try {
           await writeTextFile(this.file(), JSON.stringify(next, null, 2) + "\n", this.raw);
           this.person = next;
-          break;
-        } catch {}
+        } catch {
+          continue;
+        }
+        after?.();
+        break;
       }
       cx.notify();
     });
