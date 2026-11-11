@@ -4,7 +4,7 @@
 
 **A [Herdr](https://herdr.dev) layout that looks like the [Omarchy](https://github.com/basecamp/omarchy) desktop.**
 
-[Features](#features) · [Install](#install) · [Keys](#keys) · [What is inside](#what-is-inside) · [Development](#development)
+[View on Herdr](https://herdr.dev/layouts/shafiqimtiaz/herdr-omarchy/) · [Features](#features) · [Install](#install) · [Keys](#keys) · [What is inside](#what-is-inside) · [Development](#development)
 
 ![Omarchy layout in Herdr](preview.png)
 
