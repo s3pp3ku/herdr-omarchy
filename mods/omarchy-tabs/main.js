@@ -9,6 +9,8 @@ import { jump } from "./jump.js";
 
 // The last closed tabs (newest last), kept across restarts for ctrl-alt-shift-t.
 const CLOSED = "omarchy-tabs.closed";
+// Tab width range in px: full width when there is room, down to about a pinned-tab size.
+const TAB_MAX = 190, TAB_MIN = 84, TAB_ICONS = 120, TAB_ACTIVE = 150;
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -169,6 +171,7 @@ export default class Tabs extends View {
     const t = theme();
     const space = spaces().find(p => p.active);
     const shown = space?.tabs ?? [];
+    let tabW = TAB_MAX, tabA = TAB_MAX;
     const stop = (_e, cx) => cx.stop_propagation();
     const f = t.foreground, idle = f + "0a", hov = f + "14", sel = f + "2e";
     const allPanes = panes(), allTerminals = terminals();
@@ -194,9 +197,12 @@ export default class Tabs extends View {
       const detail = multi
         ? agentPanes.map(p => `${p.program.name}: ${({ working: "working", blocked: "needs input", done: "done" })[p.status] ?? "idle"}`).join("\n")
         : [status, c.named && title && title !== c.name ? title : program?.name].filter(Boolean).join(" · ");
-      const icons = (multi ? programs.slice(0, 3) : [program]).filter(p => p?.icon);
-      return h_flex().id(`tab-${c.id}`).w(240).h_full().px(10).gap(7).rounded(0).items_center().flex_none().text_size(12)
-        .tooltip(`${name}\n${detail}`)
+      // A narrow tab gives the icon's room to the name; the balloon still names the agent.
+      const icons = (c.active ? tabA : tabW) < TAB_ICONS ? [] : (multi ? programs.slice(0, 3) : [program]).filter(p => p?.icon);
+      // Compact tabs: they share the strip and shrink toward TAB_MIN before it scrolls.
+      // The status word lives in the hover balloon; the tab keeps only its dot or spinner.
+      return h_flex().id(`tab-${c.id}`).w(c.active ? tabA : tabW).flex_none().h_full().px(8).gap(6).rounded(0).items_center().text_size(12)
+        .tooltip([name, detail].filter(Boolean).join("\n"))
         // The close button shows on the active tab and on the one under the pointer.
         .on_hover((over, cx) => { if (over) this.overTab = c.id; else if (this.overTab === c.id) this.overTab = null; cx.notify(); })
         // Matches the pane's focus frame.
@@ -212,10 +218,9 @@ export default class Tabs extends View {
         .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openOverlay({ mod: "omarchy-menu", kind: "popup", width: 200, props: { tab: "tab", target: { id: c.id, space: space.id } } }); })
         .when(icons.length > 0, el => el.child(h_flex().flex_none().gap(6).children(icons.map(p => p.tint ? svg(p.icon).size(14).text_color(t.muted) : image(p.icon).size(14)))))
         .child(div().flex_1().min_w(0).truncate().child(c.zoomed ? `${name} Z` : name))
-        .when(Boolean(status), el => el.child(div().flex_none().text_size(10.5).text_color(t[c.status] ?? t.muted).child(status)))
         .when(c.status === "working", el => el.child(svg("mods/omarchy-tabs/icons/spinner.svg").size(12).flex_none().text_color(t.working).spin(900)))
         .when(c.status === "blocked" || c.status === "done", el => el.child(div().size(6).rounded(0).bg(t[c.status])))
-        .when(c.active || this.overTab === c.id, el => el.child(div().id(`close-${c.id}`).flex_none().p(3).rounded(0).text_color(t.dim).hover(s => s.bg(hov).text_color(t.foreground)).on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); run("tab.close", { id: c.id }); }).child(svg("mods/omarchy-tabs/icons/close.svg").size(14))));
+        .when(c.active || this.overTab === c.id, el => el.child(div().id(`close-${c.id}`).flex_none().p(2).rounded(0).text_color(t.dim).hover(s => s.bg(hov).text_color(t.foreground)).on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); run("tab.close", { id: c.id }); }).child(svg("mods/omarchy-tabs/icons/close.svg").size(14))));
     };
     const root = layout();
     const panel = find(root, "panel"), body = find(root, "panel-body");
@@ -224,6 +229,16 @@ export default class Tabs extends View {
         .filter(id => id !== "changes" || space?.branch != null)
       : [];
     this.syncPanel(space, panel, body, enabled);
+    // The strip's room: the window less the sidebar, the desk padding and gaps, "+" and the panel buttons.
+    const vw = window.viewport_size()?.width ?? 0;
+    const side = find(root, "sidebar")?.size?.px ?? 243;
+    const buttons = enabled.reduce((w, id) => w + 32 + 7.3 * ({ files: 5, changes: 7, graph: 5 }[id] ?? 6), 0);
+    const room = vw - side - 30 - 4 - 36 - buttons - 8;
+    const clamp = w => Math.max(TAB_MIN, Math.min(TAB_MAX, Math.floor(w)));
+    if (shown.length > 0 && vw > 0) tabW = clamp(room / shown.length);
+    // The active tab also holds its close button, so it gets a little more when the others can spare it.
+    if (shown.length > 1 && tabW < TAB_ACTIVE) { tabA = Math.min(TAB_ACTIVE, room - (shown.length - 1) * TAB_MIN); tabW = clamp((room - tabA) / (shown.length - 1)); tabA = Math.max(tabA, tabW); }
+    else tabA = tabW;
     const panelButton = (id, label, icon) => {
       const on = panel && !panel.hidden && body?.active === id;
       // Full-height cells like the tabs, so the strip has one rhythm and no odd gaps.
@@ -238,7 +253,7 @@ export default class Tabs extends View {
     return h_flex().size_full().min_w(0).gap(0).items_center().bg(t.chrome)
       .on_mouse_up("left", () => { this.pressed = null; })
       .on_scroll_wheel(e => { if (Math.abs(e.delta.y) >= 1) run(e.delta.y > 0 ? "tab.prev" : "tab.next"); })
-      .child(h_flex().id("tab-scroll").max_w(shown.length * 241).flex_shrink(1).min_w(0).h_full().items_center().gap(0).overflow_x_scrollbar().children(shown.map(item)))
+      .child(h_flex().id("tab-scroll").max_w((shown.length - 1) * tabW + tabA).flex_shrink(1).min_w(0).h_full().items_center().gap(0).overflow_x_scrollbar().children(shown.map(item)))
       .child(div().id("tab-new").h_full().w(36).flex_none().flex().items_center().justify_center().rounded(0).border_r(1).border_color(t.border).bg(idle).text_color(t.dim)
         .hover(s => s.bg(hov).text_color(t.foreground)).on_mouse_down("left", stop)
         .on_click(() => openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 })).child("+"))

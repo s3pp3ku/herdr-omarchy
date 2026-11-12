@@ -401,8 +401,11 @@ export default class Agents extends View {
       const also = full ? more ?? (a.space_name !== where ? a.space_name : null) : more ? where : null;
       // Two cut-off halves ("flexspring-wizar… · …") read as broken: the second shows only when both fit whole.
       const fitsMore = Boolean(also) && also !== name && (name?.length ?? 0) + also.length + 3 <= room();
+      // A hover balloon with the whole name, only when the row had to cut something off.
+      const cut = (name?.length ?? 0) > room() || (Boolean(also) && also !== name && !fitsMore);
       return h_flex()
         .id(`ag-${a.address}`)
+        .when(cut, el => el.tooltip([name, also !== name ? also : null, machine].filter(Boolean).join(" · ")))
         .relative()
         .px(squeezed ? 6 : 8)
         .h(26)
