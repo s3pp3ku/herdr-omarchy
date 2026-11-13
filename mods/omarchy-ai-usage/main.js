@@ -61,7 +61,6 @@ export default class AiUsage extends View {
   init(_props, cx) {
     if (props()?.overlay) return;
     this.sig = null;
-    this.claudeEnv = {};
     this.discoveryGeneration = 0;
     this.refreshRequestId = Number(shared(REFRESH_HANDLED)) || 0;
     this.refreshInFlightId = 0;
@@ -84,17 +83,12 @@ export default class AiUsage extends View {
   }
 
   // CLAUDE_CONFIG_DIR is per process; Linux /proc ties it to the Herdr terminal (HC_TERMINAL_ID).
+  // Looked up afresh each time: the same tab can start `ccw`, quit, then start `ccp`.
   async claudeDirOf(terminal) {
-    if (!(terminal in this.claudeEnv)) {
-      const r = await exec("sh", ["-c", `for f in /proc/[0-9]*/environ; do tr '\\0' '\\n' < "$f" 2>/dev/null | awk -F= '/^HC_TERMINAL_ID=/{t=$2} /^CLAUDE_CONFIG_DIR=/{c=$2} END{if(t!="")print t" "c}'; done`]).catch(() => null);
-      for (const line of (r?.stdout ?? "").split("\n")) {
-        const i = line.indexOf(" "), t = line.slice(0, i), dir = line.slice(i + 1).trim();
-        if (i > 0 && (dir || !this.claudeEnv[t])) this.claudeEnv[t] = dir;
-      }
-      if (!(terminal in this.claudeEnv)) this.claudeEnv[terminal] = null;
-    }
-    const dir = this.claudeEnv[terminal];
-    return dir === null ? null : (dir || `${home()}/.claude`);
+    const r = await exec("sh", ["-c", `found=; for f in $(grep -lzx "HC_TERMINAL_ID=$1" /proc/[0-9]*/environ 2>/dev/null); do found=1; grep -zs '^CLAUDE_CONFIG_DIR=' "$f" | tr '\\0' '\\n'; done; [ -n "$found" ]`, "_", terminal]).catch(() => null);
+    if (r?.code !== 0) return null;
+    const dir = (r.stdout ?? "").split("\n").find(l => l.startsWith("CLAUDE_CONFIG_DIR="))?.slice(18);
+    return dir || `${home()}/.claude`;
   }
 
   // Rebuild source descriptors before any refresh, including requests from the popup.
@@ -201,8 +195,11 @@ export default class AiUsage extends View {
         if (narrow !== this.narrow) { this.narrow = narrow; cx.notify(); }
       })
       .when(edge === "top", el => el.border_t(1).border_color(t.border))
-      .when(edge === "bottom", el => el.border_b(1).border_color(t.border))
-      .on_mouse_down("left", (e, cx) => { this.anchor = e.bounds; cx.stop_propagation(); })
+      .when(edge === "bottom", el => el.border_b(1).border_color(t.border));
+  }
+
+  clickable(el) {
+    return el.on_mouse_down("left", (e, cx) => { this.anchor = e.bounds; cx.stop_propagation(); })
       .on_click(() => this.open())
       .tooltip(shownList().map(s => this.tip(s)).join("\n") || "No agent in view");
   }
@@ -223,7 +220,7 @@ export default class AiUsage extends View {
           .child(div().w(28).text_color(stale ? t.dim : w.used >= 80 ? color(w, stale, t) : t.muted).child(`${w.used}%`))
           .child(div().w(78).flex_none().whitespace_nowrap().text_size(11).text_color(!stale && w.used >= 80 ? color(w, stale, t) : t.dim).child(`↻ ${resetsShort(w)}`))));
     });
-    return this.shell(h_flex()).pl(12).pr(8).gap(12).text_size(11.8).child(v_flex().gap(2).children(rows));
+    return this.clickable(this.shell(h_flex())).pl(12).pr(8).gap(12).text_size(11.8).child(v_flex().gap(2).children(rows));
   }
 
   // 330px: one provider gets label, bar and two windows; two drop the label; more keep one window each.
@@ -255,7 +252,9 @@ export default class AiUsage extends View {
     });
     // The same │ the bar puts between space and folder, only between segments.
     const sep = i => div().id(`usage-sep-${i}`).flex_none().text_color(t.border).child("│");
-    return this.shell(h_flex()).justify_end().px(10).gap(narrow ? 10 : 14).text_size(11).children(segs.flatMap((seg, i) => (i ? [sep(i), seg] : [seg])));
+    // Only the meters open the popup; the empty rest of the block drags the window.
+    return this.shell(h_flex()).justify_end().px(10).child(this.clickable(h_flex().id("usage").h_full().items_center()
+      .gap(narrow ? 10 : 14).text_size(11).children(segs.flatMap((seg, i) => (i ? [sep(i), seg] : [seg])))));
   }
 
   details() {

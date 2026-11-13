@@ -28,7 +28,6 @@
       "size": {
         "px": 30
       },
-      "window_drag": true,
       "background": "chrome",
       "resizable": false,
       "children": [
@@ -43,7 +42,8 @@
           },
           "size": {
             "weight": 3
-          }
+          },
+          "window_drag": true
         },
         {
           "id": "ai-usage",
@@ -51,6 +51,7 @@
           "size": {
             "weight": 2.5
           },
+          "window_drag": true,
           "content": {
             "mod": "omarchy-ai-usage",
             "props": {
@@ -64,6 +65,7 @@
           "size": {
             "px": 90
           },
+          "window_drag": true,
           "content": {
             "mod": "omarchy-bar",
             "props": {
@@ -91,36 +93,47 @@
           "resizable": false,
           "children": [
             {
-              "id": "spaces",
-              "type": "block",
+              "id": "sidebar-lists",
+              "type": "column",
               "size": {
                 "weight": 1
               },
-              "min": 90,
-              "content": {
-                "mod": "omarchy-spaces"
-              },
-              "background": "chrome",
-              "border": {
-                "width": 2,
-                "color": "border"
-              }
-            },
-            {
-              "id": "agents",
-              "type": "block",
-              "size": {
-                "weight": 1
-              },
-              "min": 90,
-              "content": {
-                "mod": "omarchy-agents"
-              },
-              "background": "chrome",
-              "border": {
-                "width": 2,
-                "color": "border"
-              }
+              "gap": 10,
+              "resizable": true,
+              "children": [
+                {
+                  "id": "spaces",
+                  "type": "block",
+                  "size": {
+                    "weight": 1
+                  },
+                  "min": 90,
+                  "content": {
+                    "mod": "omarchy-spaces"
+                  },
+                  "background": "chrome",
+                  "border": {
+                    "width": 2,
+                    "color": "border"
+                  }
+                },
+                {
+                  "id": "agents",
+                  "type": "block",
+                  "size": {
+                    "weight": 1
+                  },
+                  "min": 90,
+                  "content": {
+                    "mod": "omarchy-agents"
+                  },
+                  "background": "chrome",
+                  "border": {
+                    "width": 2,
+                    "color": "border"
+                  }
+                }
+              ]
             },
             {
               "id": "sidebar-footer",

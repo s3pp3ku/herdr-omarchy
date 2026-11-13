@@ -213,8 +213,8 @@ export default class Agents extends View {
         .when(l === "└" || l === "├", el => el.border_b(1.5).rounded_bl(0))))
       .when(Boolean(pic), el => el.child(div().mr(8).child(pic)))
       .child(div().flex_1().truncate().text_color(on ? t.foreground : t.muted).child(k.name || k.template || k.program?.name || k.address))
-      .when(this.hovered === k.address || this.arming === k.address, (el) => el.child(this.closer(t, k.address, st)))
-      .child(this.status(t, { status: st }, compact));
+      .child(this.status(t, { status: st }, compact))
+      .when(this.hovered === k.address || this.arming === k.address, (el) => el.child(this.closer(t, k.address, st)));
   }
 
   // Stops the agent. One that is working or needs you takes a second click within 3s.
@@ -223,6 +223,7 @@ export default class Agents extends View {
     return div()
       .id(`kill-${address}`)
       .flex_none()
+      .ml(4)
       .p(2)
       .rounded(0)
       .text_color(armed ? t.blocked : t.dim)
@@ -436,9 +437,9 @@ export default class Agents extends View {
         .when(Boolean(machine), el => el.child(div().text_size(10).text_color(t.dim).child(machine)))
         .when(subs.length > 0, el => el.child(fold(a, subs)))
         .when(this.hovered === a.address, el => el.child(pin))
-        .when(this.hovered === a.address || this.arming === a.address, el => el.child(this.closer(t, a.address, a.status)))
-        .when(this.hovered !== a.address && Boolean(when) && !squeezed, el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
-        .child(this.status(t, a, byPriority && !isPinned));
+        .when(Boolean(when) && !squeezed, el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
+        .child(this.status(t, a, byPriority && !isPinned))
+        .when(this.hovered === a.address || this.arming === a.address, el => el.child(this.closer(t, a.address, a.status)));
     };
 
     // Groups in list order: spaces (grouped) or priority sections. Agents of a

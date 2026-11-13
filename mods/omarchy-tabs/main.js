@@ -3,7 +3,7 @@ import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { syncNames } from "./names.js";
 import { renderPaneHeader } from "./pane.js";
-import { spaces, panes, terminals, props, run, openOverlay, theme, shared, setShared, layout, exec, readTextFile, home, appHome, nextCommand, notify } from "herdr";
+import { spaces, panes, terminals, props, run, openOverlay, theme, shared, setShared, layout, exec, readTextFile, home, appHome, nextCommand, notify, settings } from "herdr";
 import { resumeCommand, argvOf } from "./reopen.js";
 import { jump } from "./jump.js";
 
@@ -172,6 +172,10 @@ export default class Tabs extends View {
     const space = spaces().find(p => p.active);
     const shown = space?.tabs ?? [];
     let tabW = TAB_MAX, tabA = TAB_MAX;
+    const measure = key => (size, cx) => {
+      this.room ??= {};
+      if (this.room[key] !== size.width) { this.room[key] = size.width; cx.notify(); }
+    };
     const stop = (_e, cx) => cx.stop_propagation();
     const f = t.foreground, idle = f + "0a", hov = f + "14", sel = f + "2e";
     const allPanes = panes(), allTerminals = terminals();
@@ -229,14 +233,9 @@ export default class Tabs extends View {
         .filter(id => id !== "changes" || space?.branch != null)
       : [];
     this.syncPanel(space, panel, body, enabled);
-    // The strip's room: the window less the sidebar, the desk padding and gaps, "+" and the panel buttons.
-    const vw = window.viewport_size()?.width ?? 0;
-    const side = find(root, "sidebar")?.size?.px ?? 243;
-    const buttons = enabled.reduce((w, id) => w + 32 + 7.3 * ({ files: 5, changes: 7, graph: 5 }[id] ?? 6), 0);
-    const room = vw - side - 30 - 4 - 36 - buttons - 8;
+    const room = ((this.room?.strip ?? 0) - (this.room?.panels ?? 0)) / (Number(settings()?.zoom) || 1) - 36;
     const clamp = w => Math.max(TAB_MIN, Math.min(TAB_MAX, Math.floor(w)));
-    if (shown.length > 0 && vw > 0) tabW = clamp(room / shown.length);
-    // The active tab also holds its close button, so it gets a little more when the others can spare it.
+    if (shown.length > 0 && room > 0) tabW = clamp(room / shown.length);
     if (shown.length > 1 && tabW < TAB_ACTIVE) { tabA = Math.min(TAB_ACTIVE, room - (shown.length - 1) * TAB_MIN); tabW = clamp((room - tabA) / (shown.length - 1)); tabA = Math.max(tabA, tabW); }
     else tabA = tabW;
     const panelButton = (id, label, icon) => {
@@ -250,7 +249,7 @@ export default class Tabs extends View {
           else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" }); }
         }).child(svg(icon).size(14)).child(label);
     };
-    return h_flex().size_full().min_w(0).gap(0).items_center().bg(t.chrome)
+    return h_flex().id("tab-strip").size_full().min_w(0).gap(0).items_center().bg(t.chrome).on_size_change(measure("strip"))
       .on_mouse_up("left", () => { this.pressed = null; })
       .on_scroll_wheel(e => { if (Math.abs(e.delta.y) >= 1) run(e.delta.y > 0 ? "tab.prev" : "tab.next"); })
       .child(h_flex().id("tab-scroll").max_w((shown.length - 1) * tabW + tabA).flex_shrink(1).min_w(0).h_full().items_center().gap(0).overflow_x_scrollbar().children(shown.map(item)))
@@ -258,7 +257,7 @@ export default class Tabs extends View {
         .hover(s => s.bg(hov).text_color(t.foreground)).on_mouse_down("left", stop)
         .on_click(() => openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 })).child("+"))
       .child(div().flex_1())
-      .child(h_flex().h_full().gap(0).items_center().flex_none()
+      .child(h_flex().id("tab-panels").h_full().gap(0).items_center().flex_none().on_size_change(measure("panels"))
       .when(enabled.includes("files"), el => el.child(panelButton("files", "Files", "mods/omarchy-tabs/icons/files.svg")))
       .when(enabled.includes("changes"), el => el.child(panelButton("changes", "Changes", "mods/omarchy-tabs/icons/changes.svg")))
       .when(enabled.includes("graph"), el => el.child(panelButton("graph", "Graph", "mods/omarchy-tabs/icons/graph.svg"))));
