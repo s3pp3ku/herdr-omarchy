@@ -3,7 +3,7 @@ import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { syncNames } from "./names.js";
 import { renderPaneHeader } from "./pane.js";
-import { spaces, panes, terminals, props, run, openOverlay, theme, shared, setShared, layout, exec, readTextFile, home, appHome, nextCommand, notify } from "herdr";
+import { spaces, panes, terminals, props, run, openOverlay, theme, shared, setShared, layout, exec, readTextFile, home, appHome, nextCommand, notify, settings } from "herdr";
 import { resumeCommand, argvOf } from "./reopen.js";
 import { jump } from "./jump.js";
 
@@ -169,6 +169,14 @@ export default class Tabs extends View {
     const t = theme();
     const space = spaces().find(p => p.active);
     const shown = space?.tabs ?? [];
+    // Flex shrink does not reach tabs inside the scroll strip, so size them from the strip's width minus the + and panel buttons.
+    // Measured sizes include the UI zoom; widths set in style don't.
+    const room = ((this.room?.strip ?? 0) - (this.room?.panels ?? 0)) / (Number(settings()?.zoom) || 1) - 36;
+    const tabW = room > 0 && shown.length ? Math.max(96, Math.min(240, Math.floor(room / shown.length))) : 240;
+    const measure = key => (size, cx) => {
+      this.room ??= {};
+      if (this.room[key] !== size.width) { this.room[key] = size.width; cx.notify(); }
+    };
     const stop = (_e, cx) => cx.stop_propagation();
     const f = t.foreground, idle = f + "0a", hov = f + "14", sel = f + "2e";
     const allPanes = panes(), allTerminals = terminals();
@@ -195,7 +203,7 @@ export default class Tabs extends View {
         ? agentPanes.map(p => `${p.program.name}: ${({ working: "working", blocked: "needs input", done: "done" })[p.status] ?? "idle"}`).join("\n")
         : [status, c.named && title && title !== c.name ? title : program?.name].filter(Boolean).join(" · ");
       const icons = (multi ? programs.slice(0, 3) : [program]).filter(p => p?.icon);
-      return h_flex().id(`tab-${c.id}`).w(240).h_full().px(10).gap(7).rounded(0).items_center().flex_none().text_size(12)
+      return h_flex().id(`tab-${c.id}`).w(tabW).h_full().px(10).gap(7).rounded(0).items_center().flex_none().text_size(12)
         .tooltip(`${name}\n${detail}`)
         // The close button shows on the active tab and on the one under the pointer.
         .on_hover((over, cx) => { if (over) this.overTab = c.id; else if (this.overTab === c.id) this.overTab = null; cx.notify(); })
@@ -235,7 +243,7 @@ export default class Tabs extends View {
           else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" }); }
         }).child(svg(icon).size(14)).child(label);
     };
-    return h_flex().size_full().min_w(0).gap(0).items_center().bg(t.chrome)
+    return h_flex().id("tab-strip").size_full().min_w(0).gap(0).items_center().bg(t.chrome).on_size_change(measure("strip"))
       .on_mouse_up("left", () => { this.pressed = null; })
       .on_scroll_wheel(e => { if (Math.abs(e.delta.y) >= 1) run(e.delta.y > 0 ? "tab.prev" : "tab.next"); })
       .child(h_flex().id("tab-scroll").max_w(shown.length * 241).flex_shrink(1).min_w(0).h_full().items_center().gap(0).overflow_x_scrollbar().children(shown.map(item)))
@@ -243,7 +251,7 @@ export default class Tabs extends View {
         .hover(s => s.bg(hov).text_color(t.foreground)).on_mouse_down("left", stop)
         .on_click(() => openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 })).child("+"))
       .child(div().flex_1())
-      .child(h_flex().h_full().gap(0).items_center().flex_none()
+      .child(h_flex().id("tab-panels").h_full().gap(0).items_center().flex_none().on_size_change(measure("panels"))
       .when(enabled.includes("files"), el => el.child(panelButton("files", "Files", "mods/omarchy-tabs/icons/files.svg")))
       .when(enabled.includes("changes"), el => el.child(panelButton("changes", "Changes", "mods/omarchy-tabs/icons/changes.svg")))
       .when(enabled.includes("graph"), el => el.child(panelButton("graph", "Graph", "mods/omarchy-tabs/icons/graph.svg"))));
