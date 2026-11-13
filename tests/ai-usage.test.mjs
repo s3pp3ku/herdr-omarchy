@@ -16,7 +16,7 @@ function usageHarness(files = {}, response = {}, status = 200, settings = {}, pr
     focused: () => live.focused ?? null,
     panes: () => live.panes ?? [],
     agents: () => live.agents ?? [],
-    exec: async () => ({ code: 1, stdout: '', stderr: '' }),
+    exec: async (...args) => (live.exec ? live.exec(...args) : { code: 1, stdout: '', stderr: '' }),
     readTextFile: async path => {
       reads.push(path);
       const value = files[path];
@@ -615,4 +615,35 @@ test('periodic ticks redraw and refresh Omarchy during a forced Copilot fetch', 
     if (forcedTask) await forcedTask;
     Date.now = originalNow;
   }
+});
+
+test('a Claude tab follows the profile its terminal runs now, not one cached earlier', async () => {
+  let env = { t1: '', t2: '' };
+  const live = {
+    focused: { tab: 'a' },
+    panes: [{ tab: 'a', terminal: 't1', focused: true, program: { key: 'claude', name: 'Claude', icon: 'claude.svg', agent: true } }],
+    // Answers a lookup for one terminal, or a scan of all of them.
+    exec: async (_sh, args) => {
+      const t = args.at(-1);
+      const stdout = t in env ? (env[t] ? `CLAUDE_CONFIG_DIR=${env[t]}\n` : '')
+        : Object.entries(env).map(([id, dir]) => `${id} ${dir}\n`).join('');
+      return { code: 0, stdout, stderr: '' };
+    },
+  };
+  const h = usageHarness({}, {}, 200, {}, {}, live);
+  const instance = new h.AiUsage(), tasks = [];
+  const cx = { timer: { every() {} }, spawn: fn => tasks.push(fn), notify() {} };
+  const shown = async () => {
+    instance.sync(cx);
+    await Promise.all(tasks.splice(0).map(fn => fn(cx)));
+    return h.state.get('omarchy-ai-usage.shown').list.map(s => s.id);
+  };
+  instance.init({}, cx);
+  assert.deepEqual(await shown(), ['claude.claude']);
+
+  // t2 was a plain shell when t1 was looked up; it now runs the personal profile.
+  env = { t1: '', t2: '/home/test/.claude-personal' };
+  live.focused = { tab: 'b' };
+  live.panes = [{ tab: 'b', terminal: 't2', focused: true, program: { key: 'claude', name: 'Claude', icon: 'claude.svg', agent: true } }];
+  assert.deepEqual(await shown(), ['claude.personal']);
 });

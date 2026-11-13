@@ -61,7 +61,6 @@ export default class AiUsage extends View {
   init(_props, cx) {
     if (props()?.overlay) return;
     this.sig = null;
-    this.claudeEnv = {};
     this.discoveryGeneration = 0;
     this.refreshRequestId = Number(shared(REFRESH_HANDLED)) || 0;
     this.refreshInFlightId = 0;
@@ -84,17 +83,12 @@ export default class AiUsage extends View {
   }
 
   // CLAUDE_CONFIG_DIR is per process; Linux /proc ties it to the Herdr terminal (HC_TERMINAL_ID).
+  // Looked up afresh each time: the same tab can start `ccw`, quit, then start `ccp`.
   async claudeDirOf(terminal) {
-    if (!(terminal in this.claudeEnv)) {
-      const r = await exec("sh", ["-c", `for f in /proc/[0-9]*/environ; do tr '\\0' '\\n' < "$f" 2>/dev/null | awk -F= '/^HC_TERMINAL_ID=/{t=$2} /^CLAUDE_CONFIG_DIR=/{c=$2} END{if(t!="")print t" "c}'; done`]).catch(() => null);
-      for (const line of (r?.stdout ?? "").split("\n")) {
-        const i = line.indexOf(" "), t = line.slice(0, i), dir = line.slice(i + 1).trim();
-        if (i > 0 && (dir || !this.claudeEnv[t])) this.claudeEnv[t] = dir;
-      }
-      if (!(terminal in this.claudeEnv)) this.claudeEnv[terminal] = null;
-    }
-    const dir = this.claudeEnv[terminal];
-    return dir === null ? null : (dir || `${home()}/.claude`);
+    const r = await exec("sh", ["-c", `found=; for f in $(grep -lzx "HC_TERMINAL_ID=$1" /proc/[0-9]*/environ 2>/dev/null); do found=1; grep -zs '^CLAUDE_CONFIG_DIR=' "$f" | tr '\\0' '\\n'; done; [ -n "$found" ]`, "_", terminal]).catch(() => null);
+    if (r?.code !== 0) return null;
+    const dir = (r.stdout ?? "").split("\n").find(l => l.startsWith("CLAUDE_CONFIG_DIR="))?.slice(18);
+    return dir || `${home()}/.claude`;
   }
 
   // Rebuild source descriptors before any refresh, including requests from the popup.
