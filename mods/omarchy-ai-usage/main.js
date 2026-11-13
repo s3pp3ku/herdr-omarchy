@@ -201,8 +201,11 @@ export default class AiUsage extends View {
         if (narrow !== this.narrow) { this.narrow = narrow; cx.notify(); }
       })
       .when(edge === "top", el => el.border_t(1).border_color(t.border))
-      .when(edge === "bottom", el => el.border_b(1).border_color(t.border))
-      .on_mouse_down("left", (e, cx) => { this.anchor = e.bounds; cx.stop_propagation(); })
+      .when(edge === "bottom", el => el.border_b(1).border_color(t.border));
+  }
+
+  clickable(el) {
+    return el.on_mouse_down("left", (e, cx) => { this.anchor = e.bounds; cx.stop_propagation(); })
       .on_click(() => this.open())
       .tooltip(shownList().map(s => this.tip(s)).join("\n") || "No agent in view");
   }
@@ -223,7 +226,7 @@ export default class AiUsage extends View {
           .child(div().w(28).text_color(stale ? t.dim : w.used >= 80 ? color(w, stale, t) : t.muted).child(`${w.used}%`))
           .child(div().w(78).flex_none().whitespace_nowrap().text_size(11).text_color(!stale && w.used >= 80 ? color(w, stale, t) : t.dim).child(`↻ ${resetsShort(w)}`))));
     });
-    return this.shell(h_flex()).pl(12).pr(8).gap(12).text_size(11.8).child(v_flex().gap(2).children(rows));
+    return this.clickable(this.shell(h_flex())).pl(12).pr(8).gap(12).text_size(11.8).child(v_flex().gap(2).children(rows));
   }
 
   // 330px: one provider gets label, bar and two windows; two drop the label; more keep one window each.
@@ -255,7 +258,9 @@ export default class AiUsage extends View {
     });
     // The same │ the bar puts between space and folder, only between segments.
     const sep = i => div().id(`usage-sep-${i}`).flex_none().text_color(t.border).child("│");
-    return this.shell(h_flex()).justify_end().px(10).gap(narrow ? 10 : 14).text_size(11).children(segs.flatMap((seg, i) => (i ? [sep(i), seg] : [seg])));
+    // Only the meters open the popup; the empty rest of the block drags the window.
+    return this.shell(h_flex()).justify_end().px(10).child(this.clickable(h_flex().id("usage").h_full().items_center()
+      .gap(narrow ? 10 : 14).text_size(11).children(segs.flatMap((seg, i) => (i ? [sep(i), seg] : [seg])))));
   }
 
   details() {
